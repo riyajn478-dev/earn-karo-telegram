@@ -1,0 +1,805 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Earn Cash - Daily Spin & Win</title>
+  
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src='//libtl.com/sdk.js' data-zone='11831479' data-sdk='show_11831479'></script>
+
+  <!-- FIREBASE SDKs & USER TRACKING -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+    import { getFirestore, collection, doc, setDoc, addDoc, getDocs, query, where, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyAx8f44o0akz_chAiZP-gcgrtVTgpdv6mA",
+      authDomain: "earncashapp-83f24.firebaseapp.com",
+      projectId: "earncashapp-83f24",
+      storageBucket: "earncashapp-83f24.appspot.com",
+      messagingSenderId: "412313383765",
+      appId: "1:412313383765:web:25f7fcec3568a6e2d375dc"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    window.db = db;
+    window.addDoc = addDoc;
+    window.collection = collection;
+
+    async function trackUserInFirebase() {
+      try {
+        let userId = localStorage.getItem('appUserId');
+        if (!userId) {
+          userId = 'user_' + Math.floor(100000 + Math.random() * 900000);
+          localStorage.setItem('appUserId', userId);
+        }
+
+        let tgUser = window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe 
+                     ? window.Telegram.WebApp.initDataUnsafe.user : null;
+        
+        let finalUserId = tgUser && tgUser.id ? tgUser.id.toString() : userId;
+        localStorage.setItem('appUserId', finalUserId);
+
+        let botUsername = "EarnKaroTelegram_bot";
+        let refLink = "https://t.me/" + botUsername + "?start=" + finalUserId;
+        
+        setTimeout(() => {
+          let inputEl = document.getElementById('refLinkInput');
+          if(inputEl) inputEl.value = refLink;
+        }, 300);
+
+        let startParam = window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe 
+                         ? window.Telegram.WebApp.initDataUnsafe.start_param : null;
+
+        let userData = {
+          userId: finalUserId,
+          name: tgUser ? (tgUser.first_name + (tgUser.last_name ? ' ' + tgUser.last_name : '')) : "Web User " + finalUserId,
+          username: tgUser && tgUser.username ? tgUser.username : "N/A",
+          lastActive: new Date().toISOString()
+        };
+
+        if (startParam && startParam !== finalUserId) {
+          userData.referredBy = startParam;
+        }
+
+        await setDoc(doc(db, "users", finalUserId), userData, { merge: true });
+        window.loadReferralData(finalUserId, db);
+        
+        // REAL-TIME LISTENER FOR WITHDRAWAL STATUS SYNC & AUTO REFUND ON REJECTION
+        initWithdrawalListener(finalUserId, db);
+
+      } catch (error) {
+        console.error("Error tracking user: ", error);
+        let fallbackId = localStorage.getItem('appUserId') || '123456';
+        document.getElementById('refLinkInput').value = "https://t.me/EarnKaroTelegram_bot?start=" + fallbackId;
+        initWithdrawalListener(fallbackId, db);
+      }
+    }
+
+    function initWithdrawalListener(userId, dbInstance) {
+      const q = query(collection(dbInstance, "withdrawals"), where("userId", "==", userId));
+      onSnapshot(q, (snapshot) => {
+        let historyChanged = false;
+        let localHistory = JSON.parse(localStorage.getItem('withdrawHistory')) || [];
+        let currentCoins = parseInt(localStorage.getItem('coins')) || 0;
+
+        snapshot.docChanges().forEach((change) => {
+          let serverData = change.doc.data();
+          let serverDocId = change.doc.id;
+          serverData.docId = serverDocId;
+          
+          let existingIndex = localHistory.findIndex(item => (item.timestamp === serverData.timestamp || item.docId === serverDocId));
+          
+          if (existingIndex !== -1) {
+            let oldStatus = localHistory[existingIndex].status;
+            let newStatus = serverData.status;
+
+            if (oldStatus !== newStatus) {
+              // If status changed from Pending to Rejected, refund the coins automatically
+              if (oldStatus === 'Pending' && newStatus === 'Rejected') {
+                let refundedCoins = parseInt(localHistory[existingIndex].coins) || 0;
+                currentCoins += refundedCoins;
+                localStorage.setItem('coins', currentCoins.toString());
+                if (typeof updateUI === 'function') updateUI();
+              }
+              localHistory[existingIndex].status = newStatus;
+              historyChanged = true;
+            }
+          } else {
+            localHistory.unshift(serverData);
+            historyChanged = true;
+          }
+        });
+
+        if (historyChanged) {
+          localStorage.setItem('withdrawHistory', JSON.stringify(localHistory));
+          if (typeof window.withdrawHistory !== 'undefined') {
+            window.withdrawHistory = localHistory;
+          }
+          if (typeof window.renderHistory === 'function') {
+            window.renderHistory();
+          }
+        }
+      });
+    }
+
+    window.loadReferralData = async function(userId, dbInstance) {
+      try {
+        let botUsername = "EarnKaroTelegram_bot";
+        let refLink = "https://t.me/" + botUsername + "?start=" + userId;
+        document.getElementById('refLinkInput').value = refLink;
+
+        const q = query(collection(dbInstance, "users"), where("referredBy", "==", userId));
+        const querySnapshot = await getDocs(q);
+        
+        let referralsList = [];
+        querySnapshot.forEach((docItem) => {
+          referralsList.push(docItem.data());
+        });
+
+        document.getElementById('refCountText').innerText = referralsList.length + " Friends";
+        
+        let refContainer = document.getElementById('myReferralsContainer');
+        if (referralsList.length === 0) {
+          refContainer.innerHTML = '<p style="color: #94a3b8; font-size: 13px;">No referrals yet. Share your link to earn!</p>';
+        } else {
+          let html = '';
+          for (let i = 0; i < referralsList.length; i++) {
+            html += '<div style="background:#0b1329; padding:10px; border-radius:10px; margin-bottom:8px; display:flex; justify-content:space-between; align-items:center;">';
+            html += '<span style="font-weight:bold; font-size:14px; color:#38bdf8;">' + referralsList[i].name + '</span>';
+            html += '<span style="font-size:12px; color:#22c55e; font-weight:bold;">Active</span>';
+            html += '</div>';
+          }
+          refContainer.innerHTML = html;
+        }
+
+        let refEarnings = localStorage.getItem('refEarnings') || '0';
+        document.getElementById('refEarningsText').innerText = refEarnings + " Coins";
+
+      } catch (e) {
+        console.error("Error loading referral data:", e);
+      }
+    };
+
+    window.addEventListener('DOMContentLoaded', () => {
+      trackUserInFirebase();
+    });
+  </script>
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', -apple-system, sans-serif; }
+    body { background: #0b1329; color: #ffffff; padding: 15px; padding-bottom: 110px; text-align: center; }
+    
+    .card { background: #172138; border-radius: 20px; padding: 20px; margin-bottom: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.4); }
+    .coins { font-size: 32px; font-weight: bold; color: #f59e0b; margin: 10px 0; }
+    .limit-text { color: #94a3b8; font-size: 14px; margin-bottom: 15px; }
+
+    .tab-section { display: none; }
+    .tab-section.active { display: block; }
+
+    .wheel-box { position: relative; width: 270px; height: 270px; margin: 15px auto 25px auto; }
+    .pointer {
+      position: absolute; top: -12px; left: 50%; transform: translateX(-50%); width: 0; height: 0;
+      border-left: 14px solid transparent; border-right: 14px solid transparent; border-top: 22px solid #ef4444; z-index: 20;
+    }
+    #svgWheel { width: 100%; height: 100%; border-radius: 50%; border: 5px solid #6366f1; transition: transform 4s cubic-bezier(0.15, 0.8, 0.15, 1); }
+
+    .btn { background: #4f46e5; color: white; border: none; padding: 16px 24px; border-radius: 14px; font-size: 18px; font-weight: bold; cursor: pointer; width: 100%; }
+    .btn:disabled { background: #334155; color: #94a3b8; cursor: not-allowed; }
+
+    .math-question-box, .captcha-box {
+      background: #0b1329; border: 2px dashed #6366f1; border-radius: 16px; padding: 20px; font-size: 28px; font-weight: 900; color: #38bdf8; margin: 15px 0;
+    }
+    .math-input {
+      width: 100%; padding: 14px; border-radius: 12px; border: 2px solid #334155; background: #0b1329; color: #ffffff; font-size: 16px; text-align: center; outline: none; margin-bottom: 15px;
+    }
+
+    .new-watch-card { background: linear-gradient(135deg, #f0fdf4 0%, #e6f4ea 100%); border-radius: 20px; padding: 20px; margin-bottom: 15px; color: #0f172a; text-align: left; }
+    .coming-soon-card { background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); border-radius: 20px; padding: 20px; color: #0f172a; text-align: left; }
+    .card-top-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+    .reward-pill { background: rgba(220, 252, 231, 0.9); border: 1.5px solid #86efac; padding: 5px 12px; border-radius: 50px; font-weight: 800; font-size: 14px; color: #15803d; }
+    .reward-pill-blue { background: rgba(224, 242, 254, 0.9); border: 1.5px solid #7dd3fc; padding: 5px 12px; border-radius: 50px; font-weight: 800; font-size: 14px; color: #0369a1; }
+    .limit-pill { background: rgba(220, 252, 231, 0.9); border: 1.5px solid #86efac; padding: 5px 12px; border-radius: 12px; font-weight: 800; font-size: 16px; color: #166534; }
+    .limit-pill-blue { background: rgba(224, 242, 254, 0.9); border: 1.5px solid #7dd3fc; padding: 5px 12px; border-radius: 12px; font-weight: 800; font-size: 16px; color: #075985; }
+    .card-body-content { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+    .card-title-text { font-size: 22px; font-weight: 900; color: #15803d; line-height: 1.2; }
+    .card-title-text-blue { font-size: 22px; font-weight: 900; color: #0284c7; line-height: 1.2; }
+    .card-title-text span, .card-title-text-blue span { color: #0f172a; display: block; }
+    .watch-now-btn { background: linear-gradient(180deg, #22c55e 0%, #16a34a 100%); color: #ffffff; border: none; width: 100%; padding: 12px; border-radius: 50px; font-size: 18px; font-weight: 800; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px; }
+    .coming-soon-btn { background: linear-gradient(180deg, #0284c7 0%, #0369a1 100%); color: #ffffff; border: none; width: 100%; padding: 12px; border-radius: 50px; font-size: 18px; font-weight: 800; cursor: not-allowed; display: flex; align-items: center; justify-content: center; gap: 10px; opacity: 0.9; }
+
+    .action-btns-row { display: flex; gap: 10px; margin-bottom: 20px; }
+    .action-btn { flex: 1; padding: 14px; border-radius: 14px; border: none; font-weight: bold; font-size: 15px; cursor: pointer; transition: 0.2s; }
+    .action-btn.active { background: #6366f1; color: #fff; box-shadow: 0 4px 12px rgba(99,102,241,0.4); }
+    .action-btn.inactive { background: #172138; color: #94a3b8; border: 1px solid #334155; }
+
+    .payout-title { text-align: left; font-size: 18px; font-weight: bold; margin-bottom: 15px; color: #ffffff; }
+    .payout-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 20px; }
+    .payout-card { background: #ffffff; color: #0f172a; border-radius: 14px; padding: 14px 10px; text-align: center; box-shadow: 0 4px 10px rgba(0,0,0,0.3); cursor: pointer; }
+    .payout-icon-bg { width: 38px; height: 38px; background: #f8fafc; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 6px auto; }
+    .payout-icon { width: 22px; height: 22px; object-fit: contain; }
+    .payout-amount { font-size: 16px; font-weight: 900; color: #0f172a; }
+    .payout-subtext { font-size: 10px; color: #64748b; margin-bottom: 6px; font-weight: 600; }
+    .payout-badge { background: #ffe4e6; color: #e11d48; border-radius: 20px; padding: 3px 6px; font-size: 10px; font-weight: 800; display: inline-block; }
+
+    .history-card { background: #172138; border-radius: 12px; padding: 12px; margin-bottom: 10px; text-align: left; border: 1px solid #2d3a58; display: flex; justify-content: space-between; align-items: center; }
+    .history-status { padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: bold; background: #f59e0b22; color: #f59e0b; border: 1px solid #f59e0b; }
+
+    .bottom-nav { position: fixed; bottom: 0; left: 0; width: 100%; background: #172138; display: flex; justify-content: space-around; align-items: center; padding: 10px 0; border-top: 1px solid #2d3a58; z-index: 99999; }
+    .nav-btn { background: transparent; border: none; color: #94a3b8; display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 12px; font-weight: 700; cursor: pointer; width: 20%; }
+    .nav-btn .nav-icon { font-size: 20px; line-height: 1; }
+    .nav-btn.active { color: #6366f1; }
+
+    .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.75); display: flex; justify-content: center; align-items: center; z-index: 100000; opacity: 0; pointer-events: none; transition: opacity 0.3s; }
+    .modal-overlay.active { opacity: 1; pointer-events: auto; }
+    .modal-card { background: #ffffff; color: #1e293b; width: 85%; max-width: 320px; border-radius: 20px; padding: 25px 20px; text-align: center; position: relative; }
+    .modal-title { font-size: 20px; font-weight: 800; color: #4f46e5; margin-bottom: 8px; }
+    .modal-msg { font-size: 14px; color: #475569; margin-bottom: 15px; }
+    .modal-ok-btn { background: #4f46e5; color: #fff; border: none; width: 100%; padding: 12px; border-radius: 12px; font-size: 16px; font-weight: bold; cursor: pointer; }
+    .modal-ok-btn:disabled { background: #94a3b8; cursor: not-allowed; }
+    
+    .modal-close-btn {
+      position: absolute; top: 12px; right: 15px; background: transparent; border: none; font-size: 20px; font-weight: bold; color: #94a3b8; cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="card">
+    <h3>Total Balance</h3>
+    <div class="coins">🪙 <span id="userCoins">0</span> Coins</div>
+  </div>
+
+  <!-- SPIN TAB -->
+  <div id="tab-spin" class="tab-section active">
+    <div class="card">
+      <h2>🌀 Daily Spin & Win</h2>
+      <p class="limit-text">Remaining Spins Today: <strong id="spinLimit" style="color: #38bdf8;">25</strong>/25</p>
+
+      <div class="wheel-box">
+        <div class="pointer"></div>
+        <svg id="svgWheel" viewBox="0 0 300 300">
+          <g transform="translate(150,150)">
+            <path d="M0,0 L0,-150 A150,150 0 0,1 129.9,-75 Z" fill="#ef4444"/>
+            <text transform="rotate(30) translate(0,-95) rotate(90)" fill="#ffffff" font-size="14" font-weight="bold" text-anchor="middle">10 Coins</text>
+            <path d="M0,0 L129.9,-75 A150,150 0 0,1 129.9,75 Z" fill="#f59e0b"/>
+            <text transform="rotate(90) translate(0,-95) rotate(90)" fill="#ffffff" font-size="14" font-weight="bold" text-anchor="middle">50 Coins</text>
+            <path d="M0,0 L129.9,75 A150,150 0 0,1 0,150 Z" fill="#8b5cf6"/>
+            <text transform="rotate(150) translate(0,-95) rotate(90)" fill="#ffffff" font-size="14" font-weight="bold" text-anchor="middle">20 Coins</text>
+            <path d="M0,0 L0,150 A150,150 0 0,1 -129.9,75 Z" fill="#ec4899"/>
+            <text transform="rotate(210) translate(0,-95) rotate(90)" fill="#ffffff" font-size="13" font-weight="bold" text-anchor="middle">JACKPOT!</text>
+            <path d="M0,0 L-129.9,75 A150,150 0 0,1 -129.9,-75 Z" fill="#3b82f6"/>
+            <text transform="rotate(270) translate(0,-95) rotate(90)" fill="#ffffff" font-size="14" font-weight="bold" text-anchor="middle">5 Coins</text>
+            <path d="M0,0 L-129.9,-75 A150,150 0 0,1 0,-150 Z" fill="#10b981"/>
+            <text transform="rotate(330) translate(0,-95) rotate(90)" fill="#ffffff" font-size="14" font-weight="bold" text-anchor="middle">15 Coins</text>
+            <circle cx="0" cy="0" r="22" fill="#0b1329" stroke="#ffffff" stroke-width="3"/>
+          </g>
+        </svg>
+      </div>
+
+      <button class="btn" id="spinBtn" onclick="watchAdAndSpin()">▶ WATCH AD & SPIN</button>
+    </div>
+  </div>
+
+  <!-- MATH TAB -->
+  <div id="tab-math" class="tab-section">
+    <div class="card">
+      <h2>🧮 Math Quiz</h2>
+      <p class="limit-text">Remaining Today: <strong id="mathLimit" style="color: #38bdf8;">25</strong>/25</p>
+      <div class="math-question-box" id="mathQuestion">0 + 0 = ?</div>
+      <input type="number" id="mathAnswer" class="math-input" placeholder="Enter your answer" />
+      <button class="btn" id="mathBtn" onclick="submitMathAnswer()">▶ SUBMIT & WATCH AD (+10)</button>
+    </div>
+  </div>
+
+  <!-- CAPTCHA TAB -->
+  <div id="tab-captcha" class="tab-section">
+    <div class="card">
+      <h2>🔤 Captcha Solver</h2>
+      <p class="limit-text">Remaining Today: <strong id="captchaLimit" style="color: #38bdf8;">25</strong>/25</p>
+      <div class="captcha-box" id="captchaCode">XXXXX</div>
+      <input type="text" id="captchaAnswer" class="math-input" placeholder="Enter Captcha Code" style="text-transform: uppercase;" />
+      <button class="btn" id="captchaBtn" onclick="submitCaptchaAnswer()">▶ VERIFY & WATCH AD (+10)</button>
+    </div>
+  </div>
+
+  <!-- WATCH TAB -->
+  <div id="tab-watch" class="tab-section">
+    <div class="new-watch-card">
+      <div class="card-top-bar">
+        <div class="reward-pill">🪙 +10 coin</div>
+        <div class="limit-pill">🎬 <span id="watchLimitText">25</span></div>
+      </div>
+      <div class="card-body-content">
+        <div style="font-size:40px;">🎬</div>
+        <div class="card-title-text">Watch Ad <span>and earn</span></div>
+      </div>
+      <button class="watch-now-btn" id="watchAdBtn" onclick="watchAdTask(10)">
+        <span>Watch Ad</span>
+      </button>
+    </div>
+
+    <div class="coming-soon-card">
+      <div class="card-top-bar">
+        <div class="reward-pill-blue">🪙 +25 coin</div>
+        <div class="limit-pill-blue">🎬 --</div>
+      </div>
+      <div class="card-body-content">
+        <div style="font-size:40px;">🎬</div>
+        <div class="card-title-text-blue">Watch Ad <span>and earn</span></div>
+      </div>
+      <button class="coming-soon-btn" disabled>
+        <span>Coming soon......</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- WITHDRAW TAB -->
+  <div id="tab-withdraw" class="tab-section">
+    <div class="action-btns-row">
+      <button class="action-btn active" id="btn-withdraw-sub" onclick="toggleWithdrawSub('withdraw')">Withdraw</button>
+      <button class="action-btn inactive" id="btn-history-sub" onclick="toggleWithdrawSub('history')">Withdrawal History</button>
+    </div>
+
+    <div id="withdraw-main-view">
+      <div class="payout-title">Choose Payout Method</div>
+
+      <div class="payout-grid">
+        <div class="payout-card" onclick="openPayoutModal('Redeem Code', 10, 1000)">
+          <div class="payout-icon-bg"><img src="https://upload.wikimedia.org/wikipedia/commons/d/d0/Google_Play_Arrow_logo.svg" class="payout-icon"></div>
+          <div class="payout-amount">₹10</div>
+          <div class="payout-subtext">₹10 Code</div>
+          <div class="payout-badge">1000 Coins</div>
+        </div>
+        <div class="payout-card" onclick="openPayoutModal('UPI', 10, 1000)">
+          <div class="payout-icon-bg"><img src="https://upload.wikimedia.org/wikipedia/commons/e/e1/UPI-Logo-vector.svg" class="payout-icon"></div>
+          <div class="payout-amount">₹10</div>
+          <div class="payout-subtext">₹10 UPI</div>
+          <div class="payout-badge">1000 Coins</div>
+        </div>
+
+        <div class="payout-card" onclick="openPayoutModal('Redeem Code', 25, 2500)">
+          <div class="payout-icon-bg"><img src="https://upload.wikimedia.org/wikipedia/commons/d/d0/Google_Play_Arrow_logo.svg" class="payout-icon"></div>
+          <div class="payout-amount">₹25</div>
+          <div class="payout-subtext">₹25 Code</div>
+          <div class="payout-badge">2500 Coins</div>
+        </div>
+        <div class="payout-card" onclick="openPayoutModal('UPI', 25, 2500)">
+          <div class="payout-icon-bg"><img src="https://upload.wikimedia.org/wikipedia/commons/e/e1/UPI-Logo-vector.svg" class="payout-icon"></div>
+          <div class="payout-amount">₹25</div>
+          <div class="payout-subtext">₹25 UPI</div>
+          <div class="payout-badge">2500 Coins</div>
+        </div>
+
+        <div class="payout-card" onclick="openPayoutModal('Redeem Code', 50, 5000)">
+          <div class="payout-icon-bg"><img src="https://upload.wikimedia.org/wikipedia/commons/d/d0/Google_Play_Arrow_logo.svg" class="payout-icon"></div>
+          <div class="payout-amount">₹50</div>
+          <div class="payout-subtext">₹50 Code</div>
+          <div class="payout-badge">5000 Coins</div>
+        </div>
+        <div class="payout-card" onclick="openPayoutModal('UPI', 50, 5000)">
+          <div class="payout-icon-bg"><img src="https://upload.wikimedia.org/wikipedia/commons/e/e1/UPI-Logo-vector.svg" class="payout-icon"></div>
+          <div class="payout-amount">₹50</div>
+          <div class="payout-subtext">₹50 UPI</div>
+          <div class="payout-badge">5000 Coins</div>
+        </div>
+
+        <div class="payout-card" onclick="openPayoutModal('Redeem Code', 100, 10000)">
+          <div class="payout-icon-bg"><img src="https://upload.wikimedia.org/wikipedia/commons/d/d0/Google_Play_Arrow_logo.svg" class="payout-icon"></div>
+          <div class="payout-amount">₹100</div>
+          <div class="payout-subtext">₹100 Code</div>
+          <div class="payout-badge">10000 Coins</div>
+        </div>
+        <div class="payout-card" onclick="openPayoutModal('UPI', 100, 10000)">
+          <div class="payout-icon-bg"><img src="https://upload.wikimedia.org/wikipedia/commons/e/e1/UPI-Logo-vector.svg" class="payout-icon"></div>
+          <div class="payout-amount">₹100</div>
+          <div class="payout-subtext">₹100 UPI</div>
+          <div class="payout-badge">10000 Coins</div>
+        </div>
+      </div>
+    </div>
+
+    <div id="withdraw-history-view" style="display: none;">
+      <div class="payout-title">Your Withdrawal Requests</div>
+      <div id="historyListContainer">
+        <p style="color: #94a3b8; font-size: 14px; margin-top: 20px;">No withdrawal history found.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- REFER TAB -->
+  <div id="tab-refer" class="tab-section">
+    <div class="card" style="background: linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%); text-align: left; padding: 25px;">
+      <div style="font-size: 12px; font-weight: bold; background: rgba(255,255,255,0.2); padding: 4px 10px; border-radius: 20px; display: inline-block; margin-bottom: 10px;">LIFETIME REWARDS</div>
+      <h2 style="font-size: 24px; font-weight: 900; margin-bottom: 8px;">Invite Friends, Earn Together!</h2>
+      <p style="font-size: 13px; opacity: 0.9; margin-bottom: 20px;">Share your link and earn 10% lifetime commission on your friends' withdrawal amounts.</p>
+      
+      <div style="font-size: 11px; font-weight: bold; opacity: 0.8; margin-bottom: 5px; text-transform: uppercase;">YOUR REFERRAL LINK</div>
+      <div style="background: rgba(0,0,0,0.3); padding: 12px; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; border: 1px solid rgba(255,255,255,0.2);">
+        <input type="text" id="refLinkInput" readonly style="background:transparent; border:none; color:#fff; width:80%; font-size:13px; outline:none;" value="Generating...">
+        <button onclick="copyReferralLink()" style="background:#fff; color:#4f46e5; border:none; padding:6px 12px; border-radius:8px; font-weight:bold; font-size:12px; cursor:pointer;">Copy</button>
+      </div>
+    </div>
+
+    <div class="card" style="text-align: left;">
+      <div style="font-size: 13px; color: #94a3b8; font-weight: 600; text-transform: uppercase; margin-bottom: 5px;">Total Referral Earnings</div>
+      <div style="font-size: 28px; font-weight: 900; color: #f59e0b;" id="refEarningsText">0 Coins</div>
+    </div>
+
+    <div class="card" style="text-align: left;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+        <h3 style="font-size: 18px; font-weight: bold;">My Referrals</h3>
+        <span id="refCountText" style="background: rgba(99,102,241,0.2); color: #818cf8; padding: 4px 10px; border-radius: 8px; font-size: 13px; font-weight: bold;">0 Friends</span>
+      </div>
+      <div id="myReferralsContainer">
+        <p style="color: #94a3b8; font-size: 13px;">No referrals yet. Share your link to earn!</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- BOTTOM NAVIGATION -->
+  <div class="bottom-nav">
+    <button class="nav-btn active" id="nav-spin" onclick="switchTab('spin')">
+      <span class="nav-icon">🌀</span>
+      <span>Spin</span>
+    </button>
+    <button class="nav-btn" id="nav-math" onclick="switchTab('math')">
+      <span class="nav-icon">🧮</span>
+      <span>Math</span>
+    </button>
+    <button class="nav-btn" id="nav-captcha" onclick="switchTab('captcha')">
+      <span class="nav-icon">🔤</span>
+      <span>Captcha</span>
+    </button>
+    <button class="nav-btn" id="nav-watch" onclick="switchTab('watch')">
+      <span class="nav-icon">📺</span>
+      <span>Watch</span>
+    </button>
+    <button class="nav-btn" id="nav-withdraw" onclick="switchTab('withdraw')">
+      <span class="nav-icon">💸</span>
+      <span>Withdraw</span>
+    </button>
+    <button class="nav-btn" id="nav-refer" onclick="switchTab('refer')">
+      <span class="nav-icon">👥</span>
+      <span>Refer</span>
+    </button>
+  </div>
+
+  <div class="modal-overlay" id="rewardModal">
+    <div class="modal-card">
+      <div class="modal-title" id="modalTitle">Winner!</div>
+      <div class="modal-msg" id="modalText">You won 10 coins.</div>
+      <div id="modalInputContainer"></div>
+      <button class="modal-ok-btn" id="modalBtn" onclick="closeModal()">OK</button>
+    </div>
+  </div>
+</body>
+          </html>
+          <script>
+    var MAX_DAILY_SPINS = 25, MAX_DAILY_WATCH = 25, MAX_DAILY_MATH = 25, MAX_DAILY_CAPTCHA = 25;
+    var TODAY_DATE = new Date().toISOString().slice(0, 10);
+
+    var coins = parseInt(localStorage.getItem('coins')) || 0;
+    var lastSpinDate = localStorage.getItem('lastSpinDate') || TODAY_DATE;
+    var spinsDone = parseInt(localStorage.getItem('spinsDone')) || 0;
+    var watchesDone = parseInt(localStorage.getItem('watchesDone')) || 0;
+    var mathsDone = parseInt(localStorage.getItem('mathsDone')) || 0;
+    var captchasDone = parseInt(localStorage.getItem('captchasDone')) || 0;
+    var withdrawHistory = JSON.parse(localStorage.getItem('withdrawHistory')) || [];
+    
+    var withdrawalSubmitting = false;
+
+    var currentRotation = 0, currentMathAnswer = 0, currentCaptchaText = "";
+
+    if (lastSpinDate !== TODAY_DATE) {
+      spinsDone = 0; watchesDone = 0; mathsDone = 0; captchasDone = 0;
+      localStorage.setItem('spinsDone', '0'); localStorage.setItem('watchesDone', '0');
+      localStorage.setItem('mathsDone', '0'); localStorage.setItem('captchasDone', '0');
+      localStorage.setItem('lastSpinDate', TODAY_DATE);
+    }
+
+    function switchTab(tabName) {
+      var tabs = document.querySelectorAll('.tab-section');
+      for (var i = 0; i < tabs.length; i++) { tabs[i].classList.remove('active'); }
+      var navBtns = document.querySelectorAll('.nav-btn');
+      for (var j = 0; j < navBtns.length; j++) { navBtns[j].classList.remove('active'); }
+
+      document.getElementById('tab-' + tabName).classList.add('active');
+      document.getElementById('nav-' + tabName).classList.add('active');
+    }
+
+    function copyReferralLink() {
+      var copyText = document.getElementById("refLinkInput");
+      copyText.select();
+      copyText.setSelectionRange(0, 99999);
+      navigator.clipboard.writeText(copyText.value);
+      showCustomModal("Copied!", "Referral link copied to clipboard successfully!");
+    }
+
+    function toggleWithdrawSub(viewName) {
+      var withdrawView = document.getElementById('withdraw-main-view');
+      var historyView = document.getElementById('withdraw-history-view');
+      var btnWithdraw = document.getElementById('btn-withdraw-sub');
+      var btnHistory = document.getElementById('btn-history-sub');
+
+      if (viewName === 'withdraw') {
+        withdrawView.style.display = 'block';
+        historyView.style.display = 'none';
+        btnWithdraw.className = 'action-btn active';
+        btnHistory.className = 'action-btn inactive';
+      } else {
+        withdrawView.style.display = 'none';
+        historyView.style.display = 'block';
+        btnWithdraw.className = 'action-btn inactive';
+        btnHistory.className = 'action-btn active';
+        renderHistory();
+      }
+    }
+
+    function openPayoutModal(type, amount, requiredCoins) {
+      if (coins < requiredCoins) {
+        showCustomModal("Insufficient Coins", "You need at least " + requiredCoins + " coins to withdraw ₹" + amount + " " + type + "!");
+        return;
+      }
+
+      var pendingToday = withdrawHistory.some(function(item) {
+        return item.status === 'Pending';
+      });
+      if (pendingToday) {
+        showCustomModal("Pending Request Exists", "You already have a pending withdrawal request. Please wait for it to be processed before submitting a new one.");
+        return;
+      }
+
+      var placeholderText = type === 'UPI' ? "Enter UPI ID (e.g. name@paytm / ybl)" : "Enter Email for Redeem Code";
+      
+      var inputHtml = '<button class="modal-close-btn" onclick="closeModal()">✕</button>';
+      inputHtml += '<input type="text" id="payoutNameInput" class="math-input" placeholder="Enter Full Name" style="margin-top: 10px; margin-bottom: 8px;">';
+      inputHtml += '<input type="text" id="payoutDetailInput" class="math-input" placeholder="' + placeholderText + '" style="margin-top: 0px;">';
+      
+      document.getElementById('modalTitle').innerText = "Redeem ₹" + amount + " " + type;
+      document.getElementById('modalText').innerText = "Cost: -" + requiredCoins + " Coins";
+      document.getElementById('modalInputContainer').innerHTML = inputHtml;
+
+      var okBtn = document.getElementById('modalBtn');
+      okBtn.innerText = "SUBMIT REQUEST";
+      okBtn.disabled = false;
+      
+      okBtn.onclick = async function() {
+        if (withdrawalSubmitting) return;
+
+        var nameInput = document.getElementById('payoutNameInput');
+        var detailInput = document.getElementById('payoutDetailInput');
+        var nameVal = nameInput ? nameInput.value.trim() : "";
+        var detailVal = detailInput ? detailInput.value.trim() : "";
+        
+        if (!nameVal || !detailVal) { 
+          alert("Please fill both name and payment details correctly!"); 
+          return; 
+        }
+
+        if (type === 'UPI' && !detailVal.includes('@')) {
+          alert("Please enter a valid UPI ID (must contain '@')");
+          return;
+        }
+
+        if (coins < requiredCoins) {
+          showCustomModal("Insufficient Coins", "You do not have enough coins!");
+          return;
+        }
+
+        withdrawalSubmitting = true;
+        okBtn.disabled = true;
+        okBtn.innerText = "PROCESSING...";
+
+        coins -= requiredCoins;
+        localStorage.setItem('coins', coins.toString());
+
+        var reqData = {
+          type: type, 
+          amount: amount, 
+          coins: requiredCoins, 
+          name: nameVal, 
+          detail: detailVal, 
+          date: new Date().toLocaleDateString(), 
+          timestamp: Date.now(),
+          status: 'Pending',
+          userId: localStorage.getItem('appUserId') || 'unknown'
+        };
+
+        withdrawHistory.unshift(reqData);
+        localStorage.setItem('withdrawHistory', JSON.stringify(withdrawHistory));
+
+        try {
+          if (window.db && window.addDoc && window.collection) {
+            await window.addDoc(window.collection(window.db, "withdrawals"), reqData);
+          }
+          
+          withdrawalSubmitting = false;
+          okBtn.disabled = false;
+          okBtn.innerText = "OK";
+          
+          updateUI();
+          closeModal();
+          showCustomModal("Request Submitted!", "Your withdrawal request has been sent successfully! (-" + requiredCoins + " Coins)");
+
+        } catch (err) {
+          console.error("Firebase save error: ", err);
+          
+          coins += requiredCoins;
+          localStorage.setItem('coins', coins.toString());
+          withdrawHistory.shift();
+          localStorage.setItem('withdrawHistory', JSON.stringify(withdrawHistory));
+          
+          withdrawalSubmitting = false;
+          okBtn.disabled = false;
+          okBtn.innerText = "OK";
+          
+          updateUI();
+          showCustomModal("Error", "Failed to submit request. Coins have been restored. Try again.");
+        }
+      };
+
+      document.getElementById('rewardModal').classList.add('active');
+    }
+
+    function renderHistory() {
+      var container = document.getElementById('historyListContainer');
+      // Clear history button permanently removed as requested!
+
+      if (withdrawHistory.length === 0) {
+        container.innerHTML = '<p style="color: #94a3b8; font-size: 14px; margin-top: 10px;">No withdrawal history found.</p>';
+        return;
+      }
+      
+      var html = '';
+      for (var i = 0; i < withdrawHistory.length; i++) {
+        var item = withdrawHistory[i];
+        
+        let statusBg = "#eab308";
+        let statusTextColor = "#000";
+        let statusText = item.status || 'Pending';
+        
+        if (statusText.toLowerCase() === 'success') {
+          statusBg = "#22c55e";
+          statusTextColor = "#fff";
+        } else if (statusText.toLowerCase() === 'rejected') {
+          statusBg = "#ef4444";
+          statusTextColor = "#fff";
+        }
+
+        html += '<div class="history-card" style="display: flex; justify-content: space-between; align-items: center; background: #1e293b; padding: 12px; border-radius: 8px; margin-bottom: 10px;">';
+        html += '<div><div style="font-weight:bold; font-size:15px; color:#fff;">₹' + item.amount + ' ' + item.type + ' <span style="color:#f59e0b; font-size:13px;">(-' + item.coins + ' Coins)</span></div>';
+        html += '<div style="font-size:13px; color:#38bdf8; margin-top:2px;">Name: ' + (item.name || 'N/A') + '</div>';
+        html += '<div style="font-size:12px; color:#94a3b8; margin-top:2px;">Details: ' + item.detail + ' • ' + item.date + '</div></div>';
+        html += '<div class="history-status" style="background: ' + statusBg + '; color: ' + statusTextColor + '; padding: 6px 10px; border-radius: 6px; font-size: 12px; font-weight: bold;">' + statusText + '</div></div>';
+      }
+      container.innerHTML = html;
+    }
+
+    function generateMathQuestion() {
+      var num1 = Math.floor(Math.random() * 20) + 1, num2 = Math.floor(Math.random() * 20) + 1;
+      currentMathAnswer = num1 + num2;
+      document.getElementById('mathQuestion').innerText = num1 + " + " + num2 + " = ?";
+      document.getElementById('mathAnswer').value = '';
+    }
+
+    function triggerAdNetwork(onSuccessCallback) {
+      if (typeof show_11831479 === 'function') {
+        show_11831479().then(function() {
+          onSuccessCallback();
+        }).catch(function(err) {
+          console.log("Ad caught error, executing fallback:", err);
+          onSuccessCallback();
+        });
+      } else {
+        console.log("Ad function not found, executing direct fallback.");
+        onSuccessCallback();
+      }
+    }
+
+    function submitMathAnswer() {
+      if (mathsDone >= MAX_DAILY_MATH) { showCustomModal("Limit Reached!", "Daily math limit has been reached."); return; }
+      var userAnswer = parseInt(document.getElementById('mathAnswer').value);
+      if (isNaN(userAnswer) || userAnswer !== currentMathAnswer) { showCustomModal("Incorrect!", "Wrong answer, please try again!"); generateMathQuestion(); return; }
+
+      triggerAdNetwork(function() {
+        coins += 10; 
+        mathsDone += 1; 
+        localStorage.setItem('coins', coins.toString()); 
+        localStorage.setItem('mathsDone', mathsDone.toString());
+        updateUI(); 
+        showCustomModal("Correct Answer!", "+10 Coins added successfully!"); 
+        generateMathQuestion();
+      });
+    }
+
+    function generateCaptcha() {
+      var chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; currentCaptchaText = "";
+      for (var i = 0; i < 5; i++) { currentCaptchaText += chars.charAt(Math.floor(Math.random() * chars.length)); }
+      document.getElementById('captchaCode').innerText = currentCaptchaText; 
+      document.getElementById('captchaAnswer').value = '';
+    }
+
+    function submitCaptchaAnswer() {
+      if (captchasDone >= MAX_DAILY_CAPTCHA) { showCustomModal("Limit Reached!", "Daily captcha limit has been reached."); return; }
+      var userCaptcha = document.getElementById('captchaAnswer').value.trim().toUpperCase();
+      if (userCaptcha !== currentCaptchaText) { showCustomModal("Incorrect!", "Wrong captcha code, please try again!"); generateCaptcha(); return; }
+
+      triggerAdNetwork(function() {
+        coins += 10; 
+        captchasDone += 1; 
+        localStorage.setItem('coins', coins.toString()); 
+        localStorage.setItem('captchasDone', captchasDone.toString());
+        updateUI(); 
+        showCustomModal("Correct Captcha!", "+10 Coins added successfully!"); 
+        generateCaptcha();
+      });
+    }
+
+    function updateUI() {
+      document.getElementById('userCoins').innerText = coins;
+      document.getElementById('spinLimit').innerText = MAX_DAILY_SPINS - spinsDone;
+      document.getElementById('mathLimit').innerText = MAX_DAILY_MATH - mathsDone;
+      document.getElementById('captchaLimit').innerText = MAX_DAILY_CAPTCHA - captchasDone;
+      document.getElementById('watchLimitText').innerText = MAX_DAILY_WATCH - watchesDone;
+    }
+
+    function watchAdAndSpin() {
+      if (spinsDone >= MAX_DAILY_SPINS) { showCustomModal("Limit Reached!", "Daily spin limit has been reached."); return; }
+      triggerAdNetwork(function() {
+        playSpin();
+      });
+    }
+
+    function watchAdTask(rewardCoins) {
+      if (watchesDone >= MAX_DAILY_WATCH) { showCustomModal("Limit Reached!", "Daily watch limit has been reached."); return; }
+      triggerAdNetwork(function() {
+        coins += rewardCoins; 
+        watchesDone += 1; 
+        localStorage.setItem('coins', coins.toString()); 
+        localStorage.setItem('watchesDone', watchesDone.toString());
+        updateUI(); 
+        showCustomModal("Success!", "+" + rewardCoins + " Coins added successfully!");
+      });
+    }
+
+    function playSpin() {
+      var btn = document.getElementById('spinBtn'); 
+      btn.disabled = true; 
+      btn.innerText = "Spinning...";
+      
+      var targetAngle = 330; 
+      var extraRounds = 360 * 5; 
+      currentRotation += extraRounds + ((targetAngle - (currentRotation % 360) + 360) % 360);
+      document.getElementById('svgWheel').style.transform = "rotate(" + currentRotation + "deg)";
+
+      setTimeout(function() {
+        coins += 10; 
+        spinsDone += 1;
+        localStorage.setItem('coins', coins.toString()); 
+        localStorage.setItem('spinsDone', spinsDone.toString());
+        updateUI(); 
+        showCustomModal("Winner!", "You won 10 coins!");
+        btn.disabled = false; 
+        btn.innerText = "▶ WATCH AD & SPIN";
+      }, 4000);
+    }
+
+    function showCustomModal(title, msg) {
+      document.getElementById('modalTitle').innerText = title; 
+      document.getElementById('modalText').innerText = msg;
+      document.getElementById('modalInputContainer').innerHTML = '';
+      var okBtn = document.getElementById('modalBtn'); 
+      okBtn.innerText = "OK"; 
+      okBtn.disabled = false;
+      okBtn.onclick = closeModal;
+      document.getElementById('rewardModal').classList.add('active');
+    }
+
+    function closeModal() { document.getElementById('rewardModal').classList.remove('active'); }
+
+    window.onload = function() { generateMathQuestion(); generateCaptcha(); updateUI(); };
+        </script>
+        
