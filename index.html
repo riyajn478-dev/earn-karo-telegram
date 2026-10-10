@@ -11,7 +11,7 @@
   <!-- FIREBASE SDKs & USER TRACKING -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-    import { getFirestore, collection, doc, setDoc, addDoc, getDocs, query, where, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+    import { getFirestore, collection, doc, setDoc, addDoc, getDocs, getDoc, query, where, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyAx8f44o0akz_chAiZP-gcgrtVTgpdv6mA",
@@ -27,6 +27,9 @@
     window.db = db;
     window.addDoc = addDoc;
     window.collection = collection;
+    window.getDoc = getDoc;
+    window.doc = doc;
+    window.setDoc = setDoc;
 
     async function trackUserInFirebase() {
       try {
@@ -67,13 +70,13 @@
         await setDoc(doc(db, "users", finalUserId), userData, { merge: true });
         window.loadReferralData(finalUserId, db);
         
-        // REAL-TIME LISTENER FOR WITHDRAWAL STATUS SYNC & AUTO REFUND ON REJECTION
         initWithdrawalListener(finalUserId, db);
 
       } catch (error) {
         console.error("Error tracking user: ", error);
         let fallbackId = localStorage.getItem('appUserId') || '123456';
-        document.getElementById('refLinkInput').value = "https://t.me/EarnKaroTelegram_bot?start=" + fallbackId;
+        let refInput = document.getElementById('refLinkInput');
+        if(refInput) refInput.value = "https://t.me/EarnKaroTelegram_bot?start=" + fallbackId;
         initWithdrawalListener(fallbackId, db);
       }
     }
@@ -97,7 +100,6 @@
             let newStatus = serverData.status;
 
             if (oldStatus !== newStatus) {
-              // If status changed from Pending to Rejected, refund the coins automatically
               if (oldStatus === 'Pending' && newStatus === 'Rejected') {
                 let refundedCoins = parseInt(localHistory[existingIndex].coins) || 0;
                 currentCoins += refundedCoins;
@@ -129,7 +131,8 @@
       try {
         let botUsername = "EarnKaroTelegram_bot";
         let refLink = "https://t.me/" + botUsername + "?start=" + userId;
-        document.getElementById('refLinkInput').value = refLink;
+        let refInput = document.getElementById('refLinkInput');
+        if(refInput) refInput.value = refLink;
 
         const q = query(collection(dbInstance, "users"), where("referredBy", "==", userId));
         const querySnapshot = await getDocs(q);
@@ -139,24 +142,28 @@
           referralsList.push(docItem.data());
         });
 
-        document.getElementById('refCountText').innerText = referralsList.length + " Friends";
+        let refCountEl = document.getElementById('refCountText');
+        if(refCountEl) refCountEl.innerText = referralsList.length + " Friends";
         
         let refContainer = document.getElementById('myReferralsContainer');
-        if (referralsList.length === 0) {
-          refContainer.innerHTML = '<p style="color: #94a3b8; font-size: 13px;">No referrals yet. Share your link to earn!</p>';
-        } else {
-          let html = '';
-          for (let i = 0; i < referralsList.length; i++) {
-            html += '<div style="background:#0b1329; padding:10px; border-radius:10px; margin-bottom:8px; display:flex; justify-content:space-between; align-items:center;">';
-            html += '<span style="font-weight:bold; font-size:14px; color:#38bdf8;">' + referralsList[i].name + '</span>';
-            html += '<span style="font-size:12px; color:#22c55e; font-weight:bold;">Active</span>';
-            html += '</div>';
+        if (refContainer) {
+          if (referralsList.length === 0) {
+            refContainer.innerHTML = '<p style="color: #94a3b8; font-size: 13px;">No referrals yet. Share your link to earn!</p>';
+          } else {
+            let html = '';
+            for (let i = 0; i < referralsList.length; i++) {
+              html += '<div style="background:#0b1329; padding:10px; border-radius:10px; margin-bottom:8px; display:flex; justify-content:space-between; align-items:center;">';
+              html += '<span style="font-weight:bold; font-size:14px; color:#38bdf8;">' + referralsList[i].name + '</span>';
+              html += '<span style="font-size:12px; color:#22c55e; font-weight:bold;">Active</span>';
+              html += '</div>';
+            }
+            refContainer.innerHTML = html;
           }
-          refContainer.innerHTML = html;
         }
 
         let refEarnings = localStorage.getItem('refEarnings') || '0';
-        document.getElementById('refEarningsText').innerText = refEarnings + " Coins";
+        let refEarningsEl = document.getElementById('refEarningsText');
+        if(refEarningsEl) refEarningsEl.innerText = refEarnings + " Coins";
 
       } catch (e) {
         console.error("Error loading referral data:", e);
@@ -188,6 +195,14 @@
 
     .btn { background: #4f46e5; color: white; border: none; padding: 16px 24px; border-radius: 14px; font-size: 18px; font-weight: bold; cursor: pointer; width: 100%; }
     .btn:disabled { background: #334155; color: #94a3b8; cursor: not-allowed; }
+
+    /* 7-Day Streak Styles */
+    .streak-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 15px; }
+    .streak-box { background: #0b1329; border: 2px solid #2d3a58; border-radius: 12px; padding: 10px 5px; text-align: center; }
+    .streak-box.active { border-color: #6366f1; background: #1e1b4b; }
+    .streak-box.claimed { border-color: #22c55e; opacity: 0.7; }
+    .streak-day { font-size: 11px; color: #94a3b8; font-weight: bold; margin-bottom: 4px; }
+    .streak-coin { font-size: 13px; font-weight: 900; color: #f59e0b; }
 
     .math-question-box, .captcha-box {
       background: #0b1329; border: 2px dashed #6366f1; border-radius: 16px; padding: 20px; font-size: 28px; font-weight: 900; color: #38bdf8; margin: 15px 0;
@@ -245,15 +260,29 @@
     }
   </style>
 </head>
-<body>
+  <body>
 
   <div class="card">
     <h3>Total Balance</h3>
     <div class="coins">🪙 <span id="userCoins">0</span> Coins</div>
   </div>
 
-  <!-- SPIN TAB -->
+  <!-- SPIN TAB (CONTAINS DAILY CHECK-IN, SPIN WHEEL, AND PROMO CODE) -->
   <div id="tab-spin" class="tab-section active">
+    
+    <!-- Daily Check-In Card inside Spin Tab -->
+    <div class="card" style="text-align: left;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+        <h3 style="font-size: 16px; font-weight: bold;">🎁 Daily Check-In</h3>
+        <span style="font-size: 11px; color: #38bdf8; font-weight: bold;">7-Day Streak</span>
+      </div>
+      <div class="streak-grid" id="streakGridContainer">
+        <!-- Dynamic 7 boxes render here -->
+      </div>
+      <button class="btn" id="claimStreakBtn" onclick="watchAdAndClaimStreak()" style="font-size: 15px; padding: 12px;">▶ WATCH AD & CLAIM TODAY</button>
+    </div>
+
+    <!-- Spin Wheel Card -->
     <div class="card">
       <h2>🌀 Daily Spin & Win</h2>
       <p class="limit-text">Remaining Spins Today: <strong id="spinLimit" style="color: #38bdf8;">25</strong>/25</p>
@@ -281,6 +310,18 @@
 
       <button class="btn" id="spinBtn" onclick="watchAdAndSpin()">▶ WATCH AD & SPIN</button>
     </div>
+
+    <!-- PROMO CODE CARD (DIRECTLY BELOW SPIN WHEEL CARD) -->
+    <div class="card" style="text-align: left;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+        <h3 style="font-size: 16px; font-weight: bold;">🎟️ Promo Code</h3>
+        <span style="font-size: 11px; color: #f59e0b; font-weight: bold;">Instant Reward</span>
+      </div>
+      <p style="font-size: 13px; color: #94a3b8; margin-bottom: 12px;">Enter valid promo code to claim extra coins!</p>
+      <input type="text" id="promoCodeInput" class="math-input" placeholder="ENTER PROMO CODE" style="text-transform: uppercase; margin-bottom: 10px;" />
+      <button class="btn" id="applyPromoBtn" onclick="applyPromoCode()" style="font-size: 15px; padding: 12px;">▶ WATCH AD & APPLY CODE</button>
+    </div>
+
   </div>
 
   <!-- MATH TAB -->
@@ -475,331 +516,475 @@
       <button class="modal-ok-btn" id="modalBtn" onclick="closeModal()">OK</button>
     </div>
   </div>
-</body>
-          </html>
-          <script>
-    var MAX_DAILY_SPINS = 25, MAX_DAILY_WATCH = 25, MAX_DAILY_MATH = 25, MAX_DAILY_CAPTCHA = 25;
-    var TODAY_DATE = new Date().toISOString().slice(0, 10);
+  </body>
+  <script>
+  var MAX_DAILY_SPINS = 25, MAX_DAILY_WATCH = 25, MAX_DAILY_MATH = 25, MAX_DAILY_CAPTCHA = 25;
+  var TODAY_DATE = new Date().toISOString().slice(0, 10);
 
-    var coins = parseInt(localStorage.getItem('coins')) || 0;
-    var lastSpinDate = localStorage.getItem('lastSpinDate') || TODAY_DATE;
-    var spinsDone = parseInt(localStorage.getItem('spinsDone')) || 0;
-    var watchesDone = parseInt(localStorage.getItem('watchesDone')) || 0;
-    var mathsDone = parseInt(localStorage.getItem('mathsDone')) || 0;
-    var captchasDone = parseInt(localStorage.getItem('captchasDone')) || 0;
-    var withdrawHistory = JSON.parse(localStorage.getItem('withdrawHistory')) || [];
+  var coins = parseInt(localStorage.getItem('coins')) || 0;
+  var lastSpinDate = localStorage.getItem('lastSpinDate') || TODAY_DATE;
+  var spinsDone = parseInt(localStorage.getItem('spinsDone')) || 0;
+  var watchesDone = parseInt(localStorage.getItem('watchesDone')) || 0;
+  var mathsDone = parseInt(localStorage.getItem('mathsDone')) || 0;
+  var captchasDone = parseInt(localStorage.getItem('captchasDone')) || 0;
+  var withdrawHistory = JSON.parse(localStorage.getItem('withdrawHistory')) || [];
+  
+  // 7-Day Streak Variables & Reset Logic
+  var STREAK_REWARDS = [10, 20, 30, 40, 50, 75, 100];
+  var currentStreakDay = parseInt(localStorage.getItem('currentStreakDay')) || 0;
+  var lastStreakDate = localStorage.getItem('lastStreakDate') || "";
+
+  if (lastStreakDate !== "") {
+    let lastDateObj = new Date(lastStreakDate);
+    let todayObj = new Date(TODAY_DATE);
+    let diffTime = todayObj - lastDateObj;
+    let diffDays = diffTime / (1000 * 60 * 60 * 24);
+
+    if (diffDays > 1) {
+      currentStreakDay = 0;
+      localStorage.setItem('currentStreakDay', '0');
+    }
+  }
+
+  var withdrawalSubmitting = false;
+  var currentRotation = 0, currentMathAnswer = 0, currentCaptchaText = "";
+
+  if (lastSpinDate !== TODAY_DATE) {
+    spinsDone = 0; watchesDone = 0; mathsDone = 0; captchasDone = 0;
+    localStorage.setItem('spinsDone', '0'); localStorage.setItem('watchesDone', '0');
+    localStorage.setItem('mathsDone', '0'); localStorage.setItem('captchasDone', '0');
+    localStorage.setItem('lastSpinDate', TODAY_DATE);
+  }
+
+  function switchTab(tabName) {
+    var tabs = document.querySelectorAll('.tab-section');
+    for (var i = 0; i < tabs.length; i++) { tabs[i].classList.remove('active'); }
+    var navBtns = document.querySelectorAll('.nav-btn');
+    for (var j = 0; j < navBtns.length; j++) { navBtns[j].classList.remove('active'); }
+
+    document.getElementById('tab-' + tabName).classList.add('active');
+    document.getElementById('nav-' + tabName).classList.add('active');
+  }
+
+  function copyReferralLink() {
+    var copyText = document.getElementById("refLinkInput");
+    copyText.select();
+    copyText.setSelectionRange(0, 99999);
+    navigator.clipboard.writeText(copyText.value);
+    showCustomModal("Copied!", "Referral link copied to clipboard successfully!");
+  }
+
+  function toggleWithdrawSub(viewName) {
+    var withdrawView = document.getElementById('withdraw-main-view');
+    var historyView = document.getElementById('withdraw-history-view');
+    var btnWithdraw = document.getElementById('btn-withdraw-sub');
+    var btnHistory = document.getElementById('btn-history-sub');
+
+    if (viewName === 'withdraw') {
+      withdrawView.style.display = 'block';
+      historyView.style.display = 'none';
+      btnWithdraw.className = 'action-btn active';
+      btnHistory.className = 'action-btn inactive';
+    } else {
+      withdrawView.style.display = 'none';
+      historyView.style.display = 'block';
+      btnWithdraw.className = 'action-btn inactive';
+      btnHistory.className = 'action-btn active';
+      renderHistory();
+    }
+  }
+
+  function openPayoutModal(type, amount, requiredCoins) {
+    if (coins < requiredCoins) {
+      showCustomModal("Insufficient Coins", "You need at least " + requiredCoins + " coins to withdraw ₹" + amount + " " + type + "!");
+      return;
+    }
+
+    var pendingToday = withdrawHistory.some(function(item) {
+      return item.status === 'Pending';
+    });
+    if (pendingToday) {
+      showCustomModal("Pending Request Exists", "You already have a pending withdrawal request. Please wait for it to be processed before submitting a new one.");
+      return;
+    }
+
+    var placeholderText = type === 'UPI' ? "Enter UPI ID (e.g. name@paytm / ybl)" : "Enter Email for Redeem Code";
     
-    var withdrawalSubmitting = false;
+    var inputHtml = '<button class="modal-close-btn" onclick="closeModal()">✕</button>';
+    inputHtml += '<input type="text" id="payoutNameInput" class="math-input" placeholder="Enter Full Name" style="margin-top: 10px; margin-bottom: 8px;">';
+    inputHtml += '<input type="text" id="payoutDetailInput" class="math-input" placeholder="' + placeholderText + '" style="margin-top: 0px;">';
+    
+    document.getElementById('modalTitle').innerText = "Redeem ₹" + amount + " " + type;
+    document.getElementById('modalText').innerText = "Cost: -" + requiredCoins + " Coins";
+    document.getElementById('modalInputContainer').innerHTML = inputHtml;
 
-    var currentRotation = 0, currentMathAnswer = 0, currentCaptchaText = "";
+    var okBtn = document.getElementById('modalBtn');
+    okBtn.innerText = "SUBMIT REQUEST";
+    okBtn.disabled = false;
+    
+    okBtn.onclick = async function() {
+      if (withdrawalSubmitting) return;
 
-    if (lastSpinDate !== TODAY_DATE) {
-      spinsDone = 0; watchesDone = 0; mathsDone = 0; captchasDone = 0;
-      localStorage.setItem('spinsDone', '0'); localStorage.setItem('watchesDone', '0');
-      localStorage.setItem('mathsDone', '0'); localStorage.setItem('captchasDone', '0');
-      localStorage.setItem('lastSpinDate', TODAY_DATE);
-    }
-
-    function switchTab(tabName) {
-      var tabs = document.querySelectorAll('.tab-section');
-      for (var i = 0; i < tabs.length; i++) { tabs[i].classList.remove('active'); }
-      var navBtns = document.querySelectorAll('.nav-btn');
-      for (var j = 0; j < navBtns.length; j++) { navBtns[j].classList.remove('active'); }
-
-      document.getElementById('tab-' + tabName).classList.add('active');
-      document.getElementById('nav-' + tabName).classList.add('active');
-    }
-
-    function copyReferralLink() {
-      var copyText = document.getElementById("refLinkInput");
-      copyText.select();
-      copyText.setSelectionRange(0, 99999);
-      navigator.clipboard.writeText(copyText.value);
-      showCustomModal("Copied!", "Referral link copied to clipboard successfully!");
-    }
-
-    function toggleWithdrawSub(viewName) {
-      var withdrawView = document.getElementById('withdraw-main-view');
-      var historyView = document.getElementById('withdraw-history-view');
-      var btnWithdraw = document.getElementById('btn-withdraw-sub');
-      var btnHistory = document.getElementById('btn-history-sub');
-
-      if (viewName === 'withdraw') {
-        withdrawView.style.display = 'block';
-        historyView.style.display = 'none';
-        btnWithdraw.className = 'action-btn active';
-        btnHistory.className = 'action-btn inactive';
-      } else {
-        withdrawView.style.display = 'none';
-        historyView.style.display = 'block';
-        btnWithdraw.className = 'action-btn inactive';
-        btnHistory.className = 'action-btn active';
-        renderHistory();
+      var nameInput = document.getElementById('payoutNameInput');
+      var detailInput = document.getElementById('payoutDetailInput');
+      var nameVal = nameInput ? nameInput.value.trim() : "";
+      var detailVal = detailInput ? detailInput.value.trim() : "";
+      
+      if (!nameVal || !detailVal) { 
+        alert("Please fill both name and payment details correctly!"); 
+        return; 
       }
-    }
 
-    function openPayoutModal(type, amount, requiredCoins) {
+      if (type === 'UPI' && !detailVal.includes('@')) {
+        alert("Please enter a valid UPI ID (must contain '@')");
+        return;
+      }
+
       if (coins < requiredCoins) {
-        showCustomModal("Insufficient Coins", "You need at least " + requiredCoins + " coins to withdraw ₹" + amount + " " + type + "!");
+        showCustomModal("Insufficient Coins", "You do not have enough coins!");
         return;
       }
 
-      var pendingToday = withdrawHistory.some(function(item) {
-        return item.status === 'Pending';
-      });
-      if (pendingToday) {
-        showCustomModal("Pending Request Exists", "You already have a pending withdrawal request. Please wait for it to be processed before submitting a new one.");
-        return;
-      }
+      withdrawalSubmitting = true;
+      okBtn.disabled = true;
+      okBtn.innerText = "PROCESSING...";
 
-      var placeholderText = type === 'UPI' ? "Enter UPI ID (e.g. name@paytm / ybl)" : "Enter Email for Redeem Code";
-      
-      var inputHtml = '<button class="modal-close-btn" onclick="closeModal()">✕</button>';
-      inputHtml += '<input type="text" id="payoutNameInput" class="math-input" placeholder="Enter Full Name" style="margin-top: 10px; margin-bottom: 8px;">';
-      inputHtml += '<input type="text" id="payoutDetailInput" class="math-input" placeholder="' + placeholderText + '" style="margin-top: 0px;">';
-      
-      document.getElementById('modalTitle').innerText = "Redeem ₹" + amount + " " + type;
-      document.getElementById('modalText').innerText = "Cost: -" + requiredCoins + " Coins";
-      document.getElementById('modalInputContainer').innerHTML = inputHtml;
+      coins -= requiredCoins;
+      localStorage.setItem('coins', coins.toString());
 
-      var okBtn = document.getElementById('modalBtn');
-      okBtn.innerText = "SUBMIT REQUEST";
-      okBtn.disabled = false;
-      
-      okBtn.onclick = async function() {
-        if (withdrawalSubmitting) return;
-
-        var nameInput = document.getElementById('payoutNameInput');
-        var detailInput = document.getElementById('payoutDetailInput');
-        var nameVal = nameInput ? nameInput.value.trim() : "";
-        var detailVal = detailInput ? detailInput.value.trim() : "";
-        
-        if (!nameVal || !detailVal) { 
-          alert("Please fill both name and payment details correctly!"); 
-          return; 
-        }
-
-        if (type === 'UPI' && !detailVal.includes('@')) {
-          alert("Please enter a valid UPI ID (must contain '@')");
-          return;
-        }
-
-        if (coins < requiredCoins) {
-          showCustomModal("Insufficient Coins", "You do not have enough coins!");
-          return;
-        }
-
-        withdrawalSubmitting = true;
-        okBtn.disabled = true;
-        okBtn.innerText = "PROCESSING...";
-
-        coins -= requiredCoins;
-        localStorage.setItem('coins', coins.toString());
-
-        var reqData = {
-          type: type, 
-          amount: amount, 
-          coins: requiredCoins, 
-          name: nameVal, 
-          detail: detailVal, 
-          date: new Date().toLocaleDateString(), 
-          timestamp: Date.now(),
-          status: 'Pending',
-          userId: localStorage.getItem('appUserId') || 'unknown'
-        };
-
-        withdrawHistory.unshift(reqData);
-        localStorage.setItem('withdrawHistory', JSON.stringify(withdrawHistory));
-
-        try {
-          if (window.db && window.addDoc && window.collection) {
-            await window.addDoc(window.collection(window.db, "withdrawals"), reqData);
-          }
-          
-          withdrawalSubmitting = false;
-          okBtn.disabled = false;
-          okBtn.innerText = "OK";
-          
-          updateUI();
-          closeModal();
-          showCustomModal("Request Submitted!", "Your withdrawal request has been sent successfully! (-" + requiredCoins + " Coins)");
-
-        } catch (err) {
-          console.error("Firebase save error: ", err);
-          
-          coins += requiredCoins;
-          localStorage.setItem('coins', coins.toString());
-          withdrawHistory.shift();
-          localStorage.setItem('withdrawHistory', JSON.stringify(withdrawHistory));
-          
-          withdrawalSubmitting = false;
-          okBtn.disabled = false;
-          okBtn.innerText = "OK";
-          
-          updateUI();
-          showCustomModal("Error", "Failed to submit request. Coins have been restored. Try again.");
-        }
+      var reqData = {
+        type: type, 
+        amount: amount, 
+        coins: requiredCoins, 
+        name: nameVal, 
+        detail: detailVal, 
+        date: new Date().toLocaleDateString(), 
+        timestamp: Date.now(),
+        status: 'Pending',
+        userId: localStorage.getItem('appUserId') || 'unknown'
       };
 
-      document.getElementById('rewardModal').classList.add('active');
+      withdrawHistory.unshift(reqData);
+      localStorage.setItem('withdrawHistory', JSON.stringify(withdrawHistory));
+
+      try {
+        if (window.db && window.addDoc && window.collection) {
+          await window.addDoc(window.collection(window.db, "withdrawals"), reqData);
+        }
+        
+        withdrawalSubmitting = false;
+        okBtn.disabled = false;
+        okBtn.innerText = "OK";
+        
+        updateUI();
+        closeModal();
+        showCustomModal("Request Submitted!", "Your withdrawal request has been sent successfully! (-" + requiredCoins + " Coins)");
+
+      } catch (err) {
+        console.error("Firebase save error: ", err);
+        
+        coins += requiredCoins;
+        localStorage.setItem('coins', coins.toString());
+        withdrawHistory.shift();
+        localStorage.setItem('withdrawHistory', JSON.stringify(withdrawHistory));
+        
+        withdrawalSubmitting = false;
+        okBtn.disabled = false;
+        okBtn.innerText = "OK";
+        
+        updateUI();
+        showCustomModal("Error", "Failed to submit request. Coins have been restored. Try again.");
+      }
+    };
+
+    document.getElementById('rewardModal').classList.add('active');
+  }
+
+  function renderHistory() {
+    var container = document.getElementById('historyListContainer');
+    if (withdrawHistory.length === 0) {
+      container.innerHTML = '<p style="color: #94a3b8; font-size: 14px; margin-top: 10px;">No withdrawal history found.</p>';
+      return;
+    }
+    
+    var html = '';
+    for (var i = 0; i < withdrawHistory.length; i++) {
+      var item = withdrawHistory[i];
+      
+      let statusBg = "#eab308";
+      let statusTextColor = "#000";
+      let statusText = item.status || 'Pending';
+      
+      if (statusText.toLowerCase() === 'success') {
+        statusBg = "#22c55e";
+        statusTextColor = "#fff";
+      } else if (statusText.toLowerCase() === 'rejected') {
+        statusBg = "#ef4444";
+        statusTextColor = "#fff";
+      }
+
+      html += '<div class="history-card" style="display: flex; justify-content: space-between; align-items: center; background: #1e293b; padding: 12px; border-radius: 8px; margin-bottom: 10px;">';
+      html += '<div><div style="font-weight:bold; font-size:15px; color:#fff;">₹' + item.amount + ' ' + item.type + ' <span style="color:#f59e0b; font-size:13px;">(-' + item.coins + ' Coins)</span></div>';
+      html += '<div style="font-size:13px; color:#38bdf8; margin-top:2px;">Name: ' + (item.name || 'N/A') + '</div>';
+      html += '<div style="font-size:12px; color:#94a3b8; margin-top:2px;">Details: ' + item.detail + ' • ' + item.date + '</div></div>';
+      html += '<div class="history-status" style="background: ' + statusBg + '; color: ' + statusTextColor + '; padding: 6px 10px; border-radius: 6px; font-size: 12px; font-weight: bold;">' + statusText + '</div></div>';
+    }
+    container.innerHTML = html;
+  }
+
+  function generateMathQuestion() {
+    var num1 = Math.floor(Math.random() * 20) + 1, num2 = Math.floor(Math.random() * 20) + 1;
+    currentMathAnswer = num1 + num2;
+    document.getElementById('mathQuestion').innerText = num1 + " + " + num2 + " = ?";
+    document.getElementById('mathAnswer').value = '';
+  }
+
+  function triggerAdNetwork(onSuccessCallback) {
+    if (typeof show_11831479 === 'function') {
+      show_11831479().then(function() {
+        onSuccessCallback();
+      }).catch(function(err) {
+        console.log("Ad caught error, executing fallback:", err);
+        onSuccessCallback();
+      });
+    } else {
+      console.log("Ad function not found, executing direct fallback.");
+      onSuccessCallback();
+    }
+  }
+
+  function submitMathAnswer() {
+    if (mathsDone >= MAX_DAILY_MATH) { showCustomModal("Limit Reached!", "Daily math limit has been reached."); return; }
+    var userAnswer = parseInt(document.getElementById('mathAnswer').value);
+    if (isNaN(userAnswer) || userAnswer !== currentMathAnswer) { showCustomModal("Incorrect!", "Wrong answer, please try again!"); generateMathQuestion(); return; }
+
+    triggerAdNetwork(function() {
+      coins += 10; 
+      mathsDone += 1; 
+      localStorage.setItem('coins', coins.toString()); 
+      localStorage.setItem('mathsDone', mathsDone.toString());
+      updateUI(); 
+      showCustomModal("Correct Answer!", "+10 Coins added successfully!"); 
+      generateMathQuestion();
+    });
+  }
+
+  function generateCaptcha() {
+    var chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; currentCaptchaText = "";
+    for (var i = 0; i < 5; i++) { currentCaptchaText += chars.charAt(Math.floor(Math.random() * chars.length)); }
+    document.getElementById('captchaCode').innerText = currentCaptchaText; 
+    document.getElementById('captchaAnswer').value = '';
+  }
+
+  function submitCaptchaAnswer() {
+    if (captchasDone >= MAX_DAILY_CAPTCHA) { showCustomModal("Limit Reached!", "Daily captcha limit has been reached."); return; }
+    var userCaptcha = document.getElementById('captchaAnswer').value.trim().toUpperCase();
+    if (userCaptcha !== currentCaptchaText) { showCustomModal("Incorrect!", "Wrong captcha code, please try again!"); generateCaptcha(); return; }
+
+    triggerAdNetwork(function() {
+      coins += 10; 
+      captchasDone += 1; 
+      localStorage.setItem('coins', coins.toString()); 
+      localStorage.setItem('captchasDone', captchasDone.toString());
+      updateUI(); 
+      showCustomModal("Correct Captcha!", "+10 Coins added successfully!"); 
+      generateCaptcha();
+    });
+  }
+
+  // 7-Day Streak Render & Logic
+  function renderStreakUI() {
+    var container = document.getElementById('streakGridContainer');
+    if (!container) return;
+
+    var html = '';
+    for (let i = 0; i < 7; i++) {
+      let dayNum = i + 1;
+      let boxClass = "streak-box";
+      let coinText = "+" + STREAK_REWARDS[i];
+
+      if (i < currentStreakDay) {
+        boxClass += " claimed";
+        coinText = "Claimed ✔";
+      } else if (i === currentStreakDay && lastStreakDate !== TODAY_DATE) {
+        boxClass += " active";
+      }
+
+      html += '<div class="' + boxClass + '">';
+      html += '<div class="streak-day">Day ' + dayNum + '</div>';
+      html += '<div class="streak-coin">' + coinText + '</div>';
+      html += '</div>';
+    }
+    container.innerHTML = html;
+
+    let claimBtn = document.getElementById('claimStreakBtn');
+    if (claimBtn) {
+      if (lastStreakDate === TODAY_DATE) {
+        claimBtn.innerText = "CLAIMED TODAY ✅";
+        claimBtn.disabled = true;
+      } else {
+        let activeReward = STREAK_REWARDS[currentStreakDay] || 10;
+        claimBtn.innerText = "▶ WATCH AD & CLAIM DAY " + (currentStreakDay + 1) + " (+" + activeReward + ")";
+        claimBtn.disabled = false;
+      }
+    }
+  }
+
+  function watchAdAndClaimStreak() {
+    if (lastStreakDate === TODAY_DATE) {
+      showCustomModal("Already Claimed", "Aapne aaj ka check-in reward pehle hi le liya hai!");
+      return;
     }
 
-    function renderHistory() {
-      var container = document.getElementById('historyListContainer');
-      // Clear history button permanently removed as requested!
+    triggerAdNetwork(function() {
+      let reward = STREAK_REWARDS[currentStreakDay] || 10;
+      coins += reward;
+      localStorage.setItem('coins', coins.toString());
 
-      if (withdrawHistory.length === 0) {
-        container.innerHTML = '<p style="color: #94a3b8; font-size: 14px; margin-top: 10px;">No withdrawal history found.</p>';
+      lastStreakDate = TODAY_DATE;
+      localStorage.setItem('lastStreakDate', TODAY_DATE);
+
+      currentStreakDay++;
+      if (currentStreakDay >= 7) {
+        currentStreakDay = 0;
+      }
+      localStorage.setItem('currentStreakDay', currentStreakDay.toString());
+
+      updateUI();
+      renderStreakUI();
+      showCustomModal("Streak Claimed! 🎉", "+" + reward + " Coins successfully added to your balance!");
+    });
+  }
+
+  // PROMO CODE VERIFICATION & CLAIM LOGIC WITH FIREBASE
+  async function applyPromoCode() {
+    let inputEl = document.getElementById('promoCodeInput');
+    let codeVal = inputEl ? inputEl.value.trim().toUpperCase() : "";
+
+    if (!codeVal) {
+      showCustomModal("Error", "Please enter a valid promo code!");
+      return;
+    }
+
+    let userId = localStorage.getItem('appUserId') || 'unknown';
+
+    try {
+      let promoRef = window.doc(window.db, "promocodes", "active_code");
+      let promoSnap = await window.getDoc(promoRef);
+
+      if (!promoSnap.exists()) {
+        showCustomModal("Invalid Code", "No active promo code found right now!");
         return;
       }
-      
-      var html = '';
-      for (var i = 0; i < withdrawHistory.length; i++) {
-        var item = withdrawHistory[i];
-        
-        let statusBg = "#eab308";
-        let statusTextColor = "#000";
-        let statusText = item.status || 'Pending';
-        
-        if (statusText.toLowerCase() === 'success') {
-          statusBg = "#22c55e";
-          statusTextColor = "#fff";
-        } else if (statusText.toLowerCase() === 'rejected') {
-          statusBg = "#ef4444";
-          statusTextColor = "#fff";
-        }
 
-        html += '<div class="history-card" style="display: flex; justify-content: space-between; align-items: center; background: #1e293b; padding: 12px; border-radius: 8px; margin-bottom: 10px;">';
-        html += '<div><div style="font-weight:bold; font-size:15px; color:#fff;">₹' + item.amount + ' ' + item.type + ' <span style="color:#f59e0b; font-size:13px;">(-' + item.coins + ' Coins)</span></div>';
-        html += '<div style="font-size:13px; color:#38bdf8; margin-top:2px;">Name: ' + (item.name || 'N/A') + '</div>';
-        html += '<div style="font-size:12px; color:#94a3b8; margin-top:2px;">Details: ' + item.detail + ' • ' + item.date + '</div></div>';
-        html += '<div class="history-status" style="background: ' + statusBg + '; color: ' + statusTextColor + '; padding: 6px 10px; border-radius: 6px; font-size: 12px; font-weight: bold;">' + statusText + '</div></div>';
+      let promoData = promoSnap.data();
+      let serverCode = (promoData.code || "").toUpperCase();
+      let promoCoins = parseInt(promoData.coins) || 0;
+      let expiresAt = promoData.expiresAt || 0;
+
+      if (codeVal !== serverCode) {
+        showCustomModal("Invalid Code", "The promo code you entered is incorrect!");
+        return;
       }
-      container.innerHTML = html;
-    }
 
-    function generateMathQuestion() {
-      var num1 = Math.floor(Math.random() * 20) + 1, num2 = Math.floor(Math.random() * 20) + 1;
-      currentMathAnswer = num1 + num2;
-      document.getElementById('mathQuestion').innerText = num1 + " + " + num2 + " = ?";
-      document.getElementById('mathAnswer').value = '';
-    }
+      if (Date.now() > expiresAt) {
+        showCustomModal("Expired", "This promo code has expired!");
+        return;
+      }
 
-    function triggerAdNetwork(onSuccessCallback) {
-      if (typeof show_11831479 === 'function') {
-        show_11831479().then(function() {
-          onSuccessCallback();
-        }).catch(function(err) {
-          console.log("Ad caught error, executing fallback:", err);
-          onSuccessCallback();
+      let claimRef = window.doc(window.db, "promo_claims", userId + "_" + serverCode);
+      let claimSnap = await window.getDoc(claimRef);
+
+      if (claimSnap.exists()) {
+        showCustomModal("Already Claimed", "Aapne yeh promo code pehle hi use kar liya hai!");
+        return;
+      }
+
+      triggerAdNetwork(async function() {
+        coins += promoCoins;
+        localStorage.setItem('coins', coins.toString());
+
+        await window.setDoc(claimRef, {
+          userId: userId,
+          code: serverCode,
+          coins: promoCoins,
+          claimedAt: Date.now()
         });
-      } else {
-        console.log("Ad function not found, executing direct fallback.");
-        onSuccessCallback();
-      }
-    }
 
-    function submitMathAnswer() {
-      if (mathsDone >= MAX_DAILY_MATH) { showCustomModal("Limit Reached!", "Daily math limit has been reached."); return; }
-      var userAnswer = parseInt(document.getElementById('mathAnswer').value);
-      if (isNaN(userAnswer) || userAnswer !== currentMathAnswer) { showCustomModal("Incorrect!", "Wrong answer, please try again!"); generateMathQuestion(); return; }
-
-      triggerAdNetwork(function() {
-        coins += 10; 
-        mathsDone += 1; 
-        localStorage.setItem('coins', coins.toString()); 
-        localStorage.setItem('mathsDone', mathsDone.toString());
-        updateUI(); 
-        showCustomModal("Correct Answer!", "+10 Coins added successfully!"); 
-        generateMathQuestion();
+        updateUI();
+        inputEl.value = "";
+        showCustomModal("Success! 🎉", "+" + promoCoins + " Coins added successfully from promo code!");
       });
+
+    } catch (err) {
+      console.error("Promo code error: ", err);
+      showCustomModal("Error", "Something went wrong. Please try again later.");
     }
+  }
 
-    function generateCaptcha() {
-      var chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; currentCaptchaText = "";
-      for (var i = 0; i < 5; i++) { currentCaptchaText += chars.charAt(Math.floor(Math.random() * chars.length)); }
-      document.getElementById('captchaCode').innerText = currentCaptchaText; 
-      document.getElementById('captchaAnswer').value = '';
-    }
+  function updateUI() {
+    document.getElementById('userCoins').innerText = coins;
+    document.getElementById('spinLimit').innerText = MAX_DAILY_SPINS - spinsDone;
+    document.getElementById('mathLimit').innerText = MAX_DAILY_MATH - mathsDone;
+    document.getElementById('captchaLimit').innerText = MAX_DAILY_CAPTCHA - captchasDone;
+    document.getElementById('watchLimitText').innerText = MAX_DAILY_WATCH - watchesDone;
+    renderStreakUI();
+  }
 
-    function submitCaptchaAnswer() {
-      if (captchasDone >= MAX_DAILY_CAPTCHA) { showCustomModal("Limit Reached!", "Daily captcha limit has been reached."); return; }
-      var userCaptcha = document.getElementById('captchaAnswer').value.trim().toUpperCase();
-      if (userCaptcha !== currentCaptchaText) { showCustomModal("Incorrect!", "Wrong captcha code, please try again!"); generateCaptcha(); return; }
+  function watchAdAndSpin() {
+    if (spinsDone >= MAX_DAILY_SPINS) { showCustomModal("Limit Reached!", "Daily spin limit has been reached."); return; }
+    triggerAdNetwork(function() {
+      playSpin();
+    });
+  }
 
-      triggerAdNetwork(function() {
-        coins += 10; 
-        captchasDone += 1; 
-        localStorage.setItem('coins', coins.toString()); 
-        localStorage.setItem('captchasDone', captchasDone.toString());
-        updateUI(); 
-        showCustomModal("Correct Captcha!", "+10 Coins added successfully!"); 
-        generateCaptcha();
-      });
-    }
+  function watchAdTask(rewardCoins) {
+    if (watchesDone >= MAX_DAILY_WATCH) { showCustomModal("Limit Reached!", "Daily watch limit has been reached."); return; }
+    triggerAdNetwork(function() {
+      coins += rewardCoins; 
+      watchesDone += 1; 
+      localStorage.setItem('coins', coins.toString()); 
+      localStorage.setItem('watchesDone', watchesDone.toString());
+      updateUI(); 
+      showCustomModal("Success!", "+" + rewardCoins + " Coins added successfully!");
+    });
+  }
 
-    function updateUI() {
-      document.getElementById('userCoins').innerText = coins;
-      document.getElementById('spinLimit').innerText = MAX_DAILY_SPINS - spinsDone;
-      document.getElementById('mathLimit').innerText = MAX_DAILY_MATH - mathsDone;
-      document.getElementById('captchaLimit').innerText = MAX_DAILY_CAPTCHA - captchasDone;
-      document.getElementById('watchLimitText').innerText = MAX_DAILY_WATCH - watchesDone;
-    }
+  function playSpin() {
+    var btn = document.getElementById('spinBtn'); 
+    btn.disabled = true; 
+    btn.innerText = "Spinning...";
+    
+    var targetAngle = 330; 
+    var extraRounds = 360 * 5; 
+    currentRotation += extraRounds + ((targetAngle - (currentRotation % 360) + 360) % 360);
+    document.getElementById('svgWheel').style.transform = "rotate(" + currentRotation + "deg)";
 
-    function watchAdAndSpin() {
-      if (spinsDone >= MAX_DAILY_SPINS) { showCustomModal("Limit Reached!", "Daily spin limit has been reached."); return; }
-      triggerAdNetwork(function() {
-        playSpin();
-      });
-    }
+    setTimeout(function() {
+      coins += 10; 
+      spinsDone += 1;
+      localStorage.setItem('coins', coins.toString()); 
+      localStorage.setItem('spinsDone', spinsDone.toString());
+      updateUI(); 
+      showCustomModal("Winner!", "You won 10 coins!");
+      btn.disabled = false; 
+      btn.innerText = "▶ WATCH AD & SPIN";
+    }, 4000);
+  }
 
-    function watchAdTask(rewardCoins) {
-      if (watchesDone >= MAX_DAILY_WATCH) { showCustomModal("Limit Reached!", "Daily watch limit has been reached."); return; }
-      triggerAdNetwork(function() {
-        coins += rewardCoins; 
-        watchesDone += 1; 
-        localStorage.setItem('coins', coins.toString()); 
-        localStorage.setItem('watchesDone', watchesDone.toString());
-        updateUI(); 
-        showCustomModal("Success!", "+" + rewardCoins + " Coins added successfully!");
-      });
-    }
+  function showCustomModal(title, msg) {
+    document.getElementById('modalTitle').innerText = title; 
+    document.getElementById('modalText').innerText = msg;
+    document.getElementById('modalInputContainer').innerHTML = '';
+    var okBtn = document.getElementById('modalBtn'); 
+    okBtn.innerText = "OK"; 
+    okBtn.disabled = false;
+    okBtn.onclick = closeModal;
+    document.getElementById('rewardModal').classList.add('active');
+  }
 
-    function playSpin() {
-      var btn = document.getElementById('spinBtn'); 
-      btn.disabled = true; 
-      btn.innerText = "Spinning...";
-      
-      var targetAngle = 330; 
-      var extraRounds = 360 * 5; 
-      currentRotation += extraRounds + ((targetAngle - (currentRotation % 360) + 360) % 360);
-      document.getElementById('svgWheel').style.transform = "rotate(" + currentRotation + "deg)";
+  function closeModal() { document.getElementById('rewardModal').classList.remove('active'); }
 
-      setTimeout(function() {
-        coins += 10; 
-        spinsDone += 1;
-        localStorage.setItem('coins', coins.toString()); 
-        localStorage.setItem('spinsDone', spinsDone.toString());
-        updateUI(); 
-        showCustomModal("Winner!", "You won 10 coins!");
-        btn.disabled = false; 
-        btn.innerText = "▶ WATCH AD & SPIN";
-      }, 4000);
-    }
-
-    function showCustomModal(title, msg) {
-      document.getElementById('modalTitle').innerText = title; 
-      document.getElementById('modalText').innerText = msg;
-      document.getElementById('modalInputContainer').innerHTML = '';
-      var okBtn = document.getElementById('modalBtn'); 
-      okBtn.innerText = "OK"; 
-      okBtn.disabled = false;
-      okBtn.onclick = closeModal;
-      document.getElementById('rewardModal').classList.add('active');
-    }
-
-    function closeModal() { document.getElementById('rewardModal').classList.remove('active'); }
-
-    window.onload = function() { generateMathQuestion(); generateCaptcha(); updateUI(); };
-        </script>
-        
+  window.onload = function() { generateMathQuestion(); generateCaptcha(); updateUI(); };
+  </script>
+  
